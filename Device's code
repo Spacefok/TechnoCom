@@ -1,0 +1,214 @@
+
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <TroykaIMU.h>
+#include <TroykaMQ.h>
+#include <TroykaThermometer.h>
+#include <iarduino_SensorPulse.h>
+#include <SoftwareSerial.h>
+
+#define ONE_WIRE_BUS 3
+#define PIN_MQ9_1 A0
+#define PIN_MQ9_2 A1
+#define PIN_MQ9_HEATER_1 4
+#define PIN_MQ9_HEATER_2 11
+#define RX 5
+#define TX 10
+#define PULSE_SENSOR A3
+#define THERM_PIN A2
+#define RELAY_PIN 7
+
+SoftwareSerial mySerial(5, 10); // RX, TX
+Compass compass;
+OneWire ds18b20_OneWire(ONE_WIRE_BUS);
+DallasTemperature ds18b20(&ds18b20_OneWire);
+MQ9 mq9_1(PIN_MQ9_1,PIN_MQ9_1);
+MQ9 mq9_2(PIN_MQ9_2,PIN_MQ9_2);
+iarduino_SensorPulse Pulse(PULSE_SENSOR);
+TroykaThermometer therm(THERM_PIN);
+
+
+
+int     LPG1;
+int     Methane1;
+int     CarbonMonoxide1;
+int     pulse;   
+int     tempIn;
+int     tempOut;  
+  
+ 
+int     LPG2;
+int     Methane2;
+int     CarbonMonoxide2;
+     
+
+void setup() {
+  // put your setup code here, to run once:
+  //Serial.begin(9600);
+  mySerial.begin(8000);
+  ds18b20.begin();
+  ds18b20.setResolution(12);
+  mq9_1.cycleHeat();
+  mq9_2.cycleHeat();
+  Pulse.begin();
+  compass.begin();
+
+pinMode(RELAY_PIN, OUTPUT);
+
+sendCommand("AT",5,"OK");
+  delay(10);
+  sendCommand("AT+CWMODE=2", 5, "OK");
+  delay(10);
+  //sendCommand("AT+CIPMODE=0",5, "OK");
+  delay(10);
+  sendCommand("AT+CWSAP=\"QUANTNET\",\"signalist\",5,3",5,"OK");
+  delay(10);
+  sendCommand("AT+CIPAP_DEF=\"47.47.47.47\"",5,"OK");
+  delay(10);
+  sendCommand("AT+CIPMUX=1",1,"OK");
+  delay(10);
+  sendCommand("AT+CIPSERVER=1,47",5,"OK");
+  delay(10);
+
+
+}
+
+void loop() {
+  check1MQ9();
+  check2MQ9();
+
+  pulse = checkPulse();
+  
+  tempIn = checkTemperature();
+
+  sendFunc();
+
+}
+
+
+bool sendCommand(String cmd,int maxTime,char readReplay[]) {
+  //Serial.print("Command: ");
+  //Serial.print(cmd);
+  int countTime=0;
+  bool found=false;
+  while (countTime<maxTime) {
+    mySerial.println(cmd);
+    if (mySerial.find(readReplay))
+    {
+      found=true;
+      break;
+    }
+    countTime++;
+  }
+
+  if (found)
+  {
+    //Serial.println(" OK");
+  } else {
+    //Serial.println(" Fail");
+  }
+  return found;
+}
+
+
+void sendMes(String message)
+{
+  String command="AT+CIPSEND=0,";
+  command+=message.length();
+  sendCommand(command,1,">");
+  mySerial.println(message);
+}
+
+
+void check1MQ9(){
+  if (!mq9_1.isCalibrated()&&mq9_1.atHeatCycleEnd()) {
+    mq9_1.calibrate();
+    mq9_1.cycleHeat();
+  }
+
+  if (mq9_1.isCalibrated()&&mq9_1.atHeatCycleEnd()) {
+     LPG1=mq9_1.readLPG();
+     Methane1=mq9_1.readMethane();
+     CarbonMonoxide1=mq9_1.readCarbonMonoxide();
+     mq9_1.cycleHeat();
+  }
+}
+
+void check2MQ9(){
+  if (!mq9_2.isCalibrated()&&mq9_2.atHeatCycleEnd()) {
+    mq9_2.calibrate();
+    mq9_2.cycleHeat();
+  }
+
+  if (mq9_2.isCalibrated()&&mq9_2.atHeatCycleEnd()) {
+     LPG2=mq9_2.readLPG();
+     Methane2=mq9_2.readMethane();
+     CarbonMonoxide2=mq9_2.readCarbonMonoxide();
+     mq9_2.cycleHeat();
+  }
+  
+}
+
+int checkPulse(){
+  if (Pulse.check(ISP_VALID)==ISP_CONNECTED) {
+      return Pulse.check(ISP_PULSE);
+  }
+}
+
+int checkTemperature(){
+  therm.read();
+  int temp = therm.getTemperatureC();
+  if(temp>40){
+    digitalWrite(RELAY_PIN, HIGH);
+  } else{
+    digitalWrite(RELAY_PIN, LOW);
+  }
+
+  return temp;
+}
+
+void sendFunc(){
+/*Serial.println(LPG1);
+  Serial.println(Methane1);
+  Serial.println(CarbonMonoxide1);
+  Serial.print("Pulse is - ");
+  Serial.println(pulse);
+  Serial.print("Temperature is ");
+  Serial.println(tempIn);
+  
+  Serial.print(compass.readMagneticGaussX());
+    Serial.print("\t\t");
+    // Выводим напряженность магнитного поля в Гауссах по оси Y
+    Serial.print(compass.readMagneticGaussY());
+    Serial.print("\t\t");
+    // Выводим напряженность магнитного поля в Гауссах по оси Z
+    Serial.print(compass.readMagneticGaussZ());
+    Serial.println();
+  delay(1000);
+*/
+//if(pulse/100 >1){
+  sendMes("puls_"+String(pulse));
+
+  sendMes("lpg1_"+String(LPG1));
+
+  sendMes("lpg2_"+String(LPG2));
+
+  sendMes("met1_"+String(Methane1));
+
+  sendMes("met2_"+String(Methane2));
+
+  sendMes("co-1_"+String(CarbonMonoxide1));
+
+  sendMes("co-2_"+String(CarbonMonoxide2));
+
+  sendMes("temp_"+String(tempIn));
+
+
+
+  sendMes("MX_"+String(compass.readMagneticGaussX()));
+
+  sendMes("MY_"+String(compass.readMagneticGaussY()));
+
+  sendMes("MZ_"+String(compass.readMagneticGaussZ()));
+
+}
