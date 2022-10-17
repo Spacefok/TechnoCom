@@ -1,32 +1,34 @@
 
-#include <OneWire.h>
+// Probes
 #include <DallasTemperature.h>
 #include <TroykaIMU.h>
 #include <TroykaMQ.h>
 #include <TroykaThermometer.h>
 #include <iarduino_SensorPulse.h>
-#include <SoftwareSerial.h>
 
-#define ONE_WIRE_BUS 3
+// Wireless
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+
 #define PIN_MQ9_1 A0
 #define PIN_MQ9_2 A1
 #define PIN_MQ9_HEATER_1 4
 #define PIN_MQ9_HEATER_2 11
-#define RX 5
-#define TX 10
 #define PULSE_SENSOR A3
 #define THERM_PIN A2
 #define RELAY_PIN 7
 
-SoftwareSerial mySerial(5, 10); // RX, TX
 Compass compass;
-OneWire ds18b20_OneWire(ONE_WIRE_BUS);
-DallasTemperature ds18b20(&ds18b20_OneWire);
 MQ9 mq9_1(PIN_MQ9_1,PIN_MQ9_1);
 MQ9 mq9_2(PIN_MQ9_2,PIN_MQ9_2);
 iarduino_SensorPulse Pulse(PULSE_SENSOR);
 TroykaThermometer therm(THERM_PIN);
 
+
+RF24 radio(49, 50); // CE, CSN
+char data[11];
 
 
 int     LPG1;
@@ -45,33 +47,23 @@ int     CarbonMonoxide2;
 void setup() {
   // put your setup code here, to run once:
   //Serial.begin(9600);
-  mySerial.begin(8000);
-  ds18b20.begin();
-  ds18b20.setResolution(12);
   mq9_1.cycleHeat();
   mq9_2.cycleHeat();
   Pulse.begin();
   compass.begin();
 
+  radio.begin();
+  radio.setChannel(110); // 2.510 GHz
+  radio.setDataRate(RF24_2MBPS); // 2Mbps
+  radio.setPALevel(2); // ~max distance
+  radio.openWritingPipe(0x18151351820919LL); //tube
+
+
 pinMode(RELAY_PIN, OUTPUT);
-
-sendCommand("AT",5,"OK");
-  delay(10);
-  sendCommand("AT+CWMODE=2", 5, "OK");
-  delay(10);
-  //sendCommand("AT+CIPMODE=0",5, "OK");
-  delay(10);
-  sendCommand("AT+CWSAP=\"QUANTNET\",\"signalist\",5,3",5,"OK");
-  delay(10);
-  sendCommand("AT+CIPAP_DEF=\"47.47.47.47\"",5,"OK");
-  delay(10);
-  sendCommand("AT+CIPMUX=1",1,"OK");
-  delay(10);
-  sendCommand("AT+CIPSERVER=1,47",5,"OK");
-  delay(10);
-
-
 }
+
+
+
 
 void loop() {
   check1MQ9();
@@ -84,41 +76,6 @@ void loop() {
   sendFunc();
 
 }
-
-
-bool sendCommand(String cmd,int maxTime,char readReplay[]) {
-  //Serial.print("Command: ");
-  //Serial.print(cmd);
-  int countTime=0;
-  bool found=false;
-  while (countTime<maxTime) {
-    mySerial.println(cmd);
-    if (mySerial.find(readReplay))
-    {
-      found=true;
-      break;
-    }
-    countTime++;
-  }
-
-  if (found)
-  {
-    //Serial.println(" OK");
-  } else {
-    //Serial.println(" Fail");
-  }
-  return found;
-}
-
-
-void sendMes(String message)
-{
-  String command="AT+CIPSEND=0,";
-  command+=message.length();
-  sendCommand(command,1,">");
-  mySerial.println(message);
-}
-
 
 void check1MQ9(){
   if (!mq9_1.isCalibrated()&&mq9_1.atHeatCycleEnd()) {
@@ -187,28 +144,44 @@ void sendFunc(){
   delay(1000);
 */
 //if(pulse/100 >1){
-  sendMes("puls_"+String(pulse));
+  String Puls = ("puls_"+String(pulse));
+    data[0] = Puls.c_str();
 
-  sendMes("lpg1_"+String(LPG1));
+  String lpg1 = ("lpg1_"+String(LPG1));
+    data[1] = lpg1.c_str();
 
-  sendMes("lpg2_"+String(LPG2));
+  String lpg2 = ("lpg2_"+String(LPG2));
+    data[2] = lpg2.c_str();
 
-  sendMes("met1_"+String(Methane1));
+  String met1 = ("met1_"+String(Methane1));
+    data[3] = met1.c_str();
 
-  sendMes("met2_"+String(Methane2));
+  String met2 = ("met2_"+String(Methane2));
+    data[4] = met2.c_str();
 
-  sendMes("co-1_"+String(CarbonMonoxide1));
+  String co1 = ("co-1_"+String(CarbonMonoxide1));
+    data[5] = co1.c_str();
 
-  sendMes("co-2_"+String(CarbonMonoxide2));
+  String co2 = ("co-2_"+String(CarbonMonoxide2));
+    data[6] = co2.c_str();
 
-  sendMes("temp_"+String(tempIn));
+  String temp = ("temp_"+String(tempIn));
+    data[7] = temp.c_str();
 
 
 
-  sendMes("MX_"+String(compass.readMagneticGaussX()));
+  String mx = ("MX_"+String(compass.readMagneticGaussX()));
+    data[8] = mx.c_str();
 
-  sendMes("MY_"+String(compass.readMagneticGaussY()));
+  String my = ("MY_"+String(compass.readMagneticGaussY()));
+    data[9] = my.c_str();
 
-  sendMes("MZ_"+String(compass.readMagneticGaussZ()));
+  String mz = ("MZ_"+String(compass.readMagneticGaussZ()));
+    data[10] = mz.c_str();
+
+  delay(100);
+
+  radio.write(&data, sizeof(data));
+
 
 }
